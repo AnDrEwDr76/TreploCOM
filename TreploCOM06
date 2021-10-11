@@ -1,0 +1,528 @@
+package comPortLogger06;
+
+import java.awt.BorderLayout;
+import java.awt.Container;
+import java.awt.FlowLayout;
+import java.awt.GridLayout;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+
+import javax.swing.DefaultComboBoxModel;
+import javax.swing.JButton;
+import javax.swing.JCheckBox;
+import javax.swing.JComboBox;
+import javax.swing.JFrame;
+import javax.swing.JLabel;
+import javax.swing.JPanel;
+import javax.swing.JTextArea;
+
+//import comPort.ReadLog.EventListener;
+import jssc.SerialPort;
+import jssc.SerialPortEvent;
+import jssc.SerialPortEventListener;
+import jssc.SerialPortException;
+
+/**
+ * Описание
+ * 
+ * @author AnDrEwDr
+ * 
+ *         Программа подключается к указанному COM-порту и в виде текста
+ *         показывает приходящую на него извне информацию. Есть возможность
+ *         отправить на этот порт строку текста (набранную в специальном поле)
+ *         или один байт в диапазоне -128 - +127, составленный переключением
+ *         восьми кнопок-галочек. Программа тестировалась при помощи двух
+ *         программ:
+ * 
+ *         1. Эмулятор COM-портов: Virtual Serial Port Driver 9.0 (Eltima
+ *         Sofware) – trial-версия с полным функционалом на 14 дней;
+ * 
+ *         2. Генератор трафика и логгер: COM Port Data Emulator & Traffic
+ *         generator (AGG Software) - бесплатная программа. Имеет схожий с
+ *         описываемой программой функционал с гораздо более широкими
+ *         возможностями.
+ * 
+ *         Для работы с COM-портом используетс библиотека jssc 2.8.0. Для
+ *         отображения окна используется библиотека awt.
+ * 
+ *         Метод main даёт команду на создание экземпляра класса ComPortLogger06
+ *         и команду на его отображение. ComPortLogger06 прописывает кучу
+ *         переменных static и запускает свой конструктор. Конструктор
+ *         ComPortLogger06 описывает модели данных для выпадающих списков и
+ *         вызывает метод visualisationGUI. Этот метод расставляет в рабочем
+ *         окне элементы управления и навешивает на них экземпляры слушателя
+ *         ActionWorker. ActionWorker слушает события рабочего окна и реагирует
+ *         на них: меняет настройки подключения, подключается к указанному
+ *         порту, отключается, отправляет в порт информацию, отправляет
+ *         сообщения в строку состояния внизу рабочего окна.
+ * 
+ *         Отдельно работает слушатель класс PortListener
+ *         (jssc.SerialPortEventListener). Это класс static. Он направляет
+ *         информацию из порта в рабочее окно (portSay).
+ *         
+ *         
+ *         
+ *         В будущих версиях: лог в отдельном файле .csv, побайтный приём, 
+ *         каскадное открытие нескольких окон, возможность изменения диапазона
+ *         байта (либо -128+127, либо 0-255), конфигурационный файлик,
+ *         учёт кодировок или отображение в разных кодировках, отображение
+ *         в двоичном виде, ...
+ *         
+ *         Сделано в IDE Eclipse Version: 2020-03 (4.15.0)
+ */
+
+/**
+ * Параметры подключения SerialPort.XXX_X:
+ * 
+ * //SerialPort.STOPBITS_1 = 1 ; //SerialPort.STOPBITS_1_5 = 3 ;
+ * //SerialPort.STOPBITS_2 = 2 ; //SerialPort.MASK_BREAK = 64 ;
+ * //SerialPort.MASK_CTS = 8 ; //SerialPort.MASK_DSR = 16 ;
+ * //SerialPort.MASK_ERR = 128 ; //SerialPort.MASK_RING = 256 ;
+ * //SerialPort.MASK_RLSD = 32 ; //SerialPort.MASK_RXCHAR = 1 ;
+ * //SerialPort.MASK_RXFLAG = 2 ; //SerialPort.MASK_TXEMPTY = 4 ; //
+ * //SerialPort.PARITY_EVEN = 2 ; //SerialPort.PARITY_MARK = 3 ;
+ * //SerialPort.PARITY_NONE = 0 ; //SerialPort.PARITY_ODD = 1 ;
+ * //SerialPort.PARITY_SPACE = 4 ; // //SerialPort.ERROR_FRAME = 8 ;
+ * //SerialPort.ERROR_OVERRUN = 2 ; //SerialPort.ERROR_PARITY = 4 ; //
+ * //SerialPort.PURGE_RXABORT = 2 ; //SerialPort.PURGE_RXCLEAR = 8 ;
+ * //SerialPort.PURGE_TXABORT = 1 ; //SerialPort.PURGE_TXCLEAR = 4 ; //
+ * //SerialPort.FLOWCONTROL_NONE = 0 ; //SerialPort.FLOWCONTROL_RTSCTS_IN = 1 ;
+ * //SerialPort.FLOWCONTROL_RTSCTS_OUT = 2 ;
+ * 
+ * //SerialPort.FLOWCONTROL_XONXOFF_IN = 4 ;
+ * //SerialPort.FLOWCONTROL_XONXOFF_OUT = 8 ;
+ */
+
+public class ComPortLogger06 extends JFrame {
+    private static final long serialVersionUID = 1L;
+    private static final int MINIMAL_VOLUME_OF_BYTE = -128;// -128
+    // buttons
+    private static JButton applyButton;
+    private static JButton openPortButton;
+    private static JButton sendItButton;
+    private static JButton sendOneByteButton;
+    // variables
+    private static boolean portIsOpenedFlag = false;
+    static String nameOfPortString = "COM3";
+    static JTextArea nameOfPortArea = new JTextArea(nameOfPortString);
+    private static JLabel messageText = new JLabel("Messages");
+    private static JTextArea portSay = new JTextArea("Incoming message", 1, 25);
+    private static JTextArea sendToPortArea = new JTextArea("I say!");
+    // chekboxes
+    private static boolean[] bitFlag = new boolean[8]; // flags for the BYTE sender
+    {
+        for (int i = 0; i < 8; i++) {
+            bitFlag[i] = false;
+        }
+    }
+    private static JCheckBox bit0 = new JCheckBox("7");
+    private static JCheckBox bit1 = new JCheckBox();
+    private static JCheckBox bit2 = new JCheckBox();
+    private static JCheckBox bit3 = new JCheckBox();
+    private static JCheckBox bit4 = new JCheckBox();
+    private static JCheckBox bit5 = new JCheckBox();
+    private static JCheckBox bit6 = new JCheckBox();
+    private static JCheckBox bit7 = new JCheckBox("0");
+
+    // Dropdown list baudrate
+    private Integer[] baudrateIntArray = new Integer[] { 9600, 110, 300, 600, 1200, 4800, 14400, 19200, 38400, 57600,
+            115200, 128000, 256000 };
+    private JComboBox<Integer> baudrateIntArrayCBox;
+    private DefaultComboBoxModel<Integer> baudrateIntArrayCBoxModel; // модель данных, описывается в конструкторе
+    // Dropdown list dataBits
+    private Integer[] dataBitsIntArray = new Integer[] { 8, 7, 6, 5 };
+    private JComboBox<Integer> dataBitsIntArrayCBox;
+    private DefaultComboBoxModel<Integer> dataBitsIntArrayCBoxModel;
+    // Dropdown list stopBits
+    private String[] stopBitsStringArray = new String[] { "1", "1_5", "2" };
+    private JComboBox<String> stopBitsStringArrayCBox;
+    private DefaultComboBoxModel<String> stopBitsStringArrayCBoxModel;
+    // Dropdown list parity
+    private String[] parityStringArray = new String[] { "NONE", "EVEN", "MARK", "ODD", "SPACE" };
+    private JComboBox<String> parityStringArrayCBox;
+    private DefaultComboBoxModel<String> parityStringArrayCBoxModel;
+    // Dropdown list
+    private String[] maskStringArray = new String[] { "RXCHAR", "BREAK", "CTS", "DSR", "ERR", "RING", "RLSD", "RXFLAG",
+            "TXEMPTY" };
+    private JComboBox<String> maskStringArrayCBox;
+    private DefaultComboBoxModel<String> maskStringArrayCBoxModel;
+
+    // port settings for starting
+    static int baudRate = 9600;
+    static int dataBits = 8;
+    static int stopBits = 1;
+    static int parity = 0;
+    static int mask = 1;
+
+    // port
+    private static SerialPort serialPort;
+
+    public ComPortLogger06() {
+        super("COM-Port communication TreploCOM 0.65"); // обращение к классу JFrame
+
+        /**
+         * модели данных для выпадающих списков
+         */
+        // model for BAUDRATE
+        baudrateIntArrayCBoxModel = new DefaultComboBoxModel<Integer>();
+        for (int i = 0; i < baudrateIntArray.length; i++)
+            baudrateIntArrayCBoxModel.addElement(baudrateIntArray[i]);
+        baudrateIntArrayCBox = new JComboBox<Integer>(baudrateIntArrayCBoxModel);
+
+        // model for dataBits
+        dataBitsIntArrayCBoxModel = new DefaultComboBoxModel<Integer>();
+        for (int i = 0; i < dataBitsIntArray.length; i++)
+            dataBitsIntArrayCBoxModel.addElement(dataBitsIntArray[i]);
+        dataBitsIntArrayCBox = new JComboBox<Integer>(dataBitsIntArrayCBoxModel);
+
+        // model for stopBits
+        stopBitsStringArrayCBoxModel = new DefaultComboBoxModel<String>();
+        for (int i = 0; i < stopBitsStringArray.length; i++)
+            stopBitsStringArrayCBoxModel.addElement(stopBitsStringArray[i]);
+        stopBitsStringArrayCBox = new JComboBox<String>(stopBitsStringArrayCBoxModel);
+
+        // model for parity
+        parityStringArrayCBoxModel = new DefaultComboBoxModel<String>();
+        for (int i = 0; i < parityStringArray.length; i++)
+            parityStringArrayCBoxModel.addElement(parityStringArray[i]);
+        parityStringArrayCBox = new JComboBox<String>(parityStringArrayCBoxModel);
+
+        // model for mask
+        maskStringArrayCBoxModel = new DefaultComboBoxModel<String>();
+        for (int i = 0; i < maskStringArray.length; i++)
+            maskStringArrayCBoxModel.addElement(maskStringArray[i]);
+        maskStringArrayCBox = new JComboBox<String>(maskStringArrayCBoxModel);
+
+        // Создание окна
+        visualisationGUI();
+    }
+
+    // GUI with listeners
+    private void visualisationGUI() {
+        setSize(530, 290);
+        setLocation(100, 100);
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        // Нижняя панель для сообщений
+        JPanel messageFlow = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        messageFlow.add(messageText);
+
+        // Левая панель с настройками
+        JPanel settings = new JPanel(new GridLayout(12, 2, 3, 5));
+        settings.add(new JLabel("Settings:"));
+        settings.add(new JLabel(""));
+
+        settings.add(new JLabel("Name of port:"));
+        settings.add(nameOfPortArea);
+
+        settings.add(new JLabel("Baudrate:"));
+//        settings.add(new JLabel("BAUDRATE_9600")); // старый вид строчки, где не было выпадающего выбора
+        settings.add(baudrateIntArrayCBox); // dropdown menu baudrate
+
+        settings.add(new JLabel("Databits:"));
+        settings.add(dataBitsIntArrayCBox); // dropdown menu dataBits
+
+        settings.add(new JLabel("Stopbit:"));
+        settings.add(stopBitsStringArrayCBox); // dropdown menu stopBits
+
+        settings.add(new JLabel("Mask:"));
+        settings.add(maskStringArrayCBox); // dropdown menu mask
+
+        applyButton = new JButton("Stop and apply");
+        applyButton.setActionCommand("applyButtonPressed");
+        settings.add(applyButton);
+
+        settings.add(new JLabel("")); // spacer
+        openPortButton = new JButton("Open port");
+        openPortButton.setActionCommand("openPortButtonPressed");
+        settings.add(openPortButton);
+
+        JPanel flow2 = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        flow2.add(settings);
+
+        // Правая панель рабочая
+        JPanel rightPan = new JPanel(new GridLayout(12, 2, 3, 5));
+        rightPan.add(new JLabel("Incoming message:"));
+        rightPan.add(portSay);
+        // Divider
+        rightPan.add(new JLabel(""));
+        // Send to port
+        rightPan.add(new JLabel("Send string"));
+        rightPan.add(sendToPortArea);
+        sendItButton = new JButton("Send");
+        sendItButton.setActionCommand("sendItButtonPressed");
+        rightPan.add(sendItButton);
+        // Divider
+        rightPan.add(new JLabel(""));
+        // Send ONE BYTE
+        rightPan.add(new JLabel("Send one byte"));
+        JPanel checkBoxes = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        bit0.setActionCommand("bit0");
+        bit1.setActionCommand("bit1");
+        bit2.setActionCommand("bit2");
+        bit3.setActionCommand("bit3");
+        bit4.setActionCommand("bit4");
+        bit5.setActionCommand("bit5");
+        bit6.setActionCommand("bit6");
+        bit7.setActionCommand("bit7");
+        checkBoxes.add(bit0);
+        checkBoxes.add(bit1);
+        checkBoxes.add(bit2);
+        checkBoxes.add(bit3);
+        checkBoxes.add(bit4);
+        checkBoxes.add(bit5);
+        checkBoxes.add(bit6);
+        checkBoxes.add(bit7);
+        rightPan.add(checkBoxes);
+        sendOneByteButton = new JButton("Send one byte");
+        sendOneByteButton.setActionCommand("sendOneByteButtonPressed");
+        rightPan.add(sendOneByteButton);
+        rightPan.add(new JLabel("")); // Divider
+        JPanel flow3 = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        flow3.add(rightPan);
+
+        ActionListener actionListener = new ActionWorker();
+
+        // listeners on buttons
+        openPortButton.addActionListener(actionListener);
+        applyButton.addActionListener(actionListener);
+        sendItButton.addActionListener(actionListener);
+        sendOneByteButton.addActionListener(actionListener);
+
+        // listener on checkboxes
+        bit0.addActionListener(actionListener);
+        bit1.addActionListener(actionListener);
+        bit2.addActionListener(actionListener);
+        bit3.addActionListener(actionListener);
+        bit4.addActionListener(actionListener);
+        bit5.addActionListener(actionListener);
+        bit6.addActionListener(actionListener);
+        bit7.addActionListener(actionListener);
+
+        // Listener on dropdownmenues
+        baudrateIntArrayCBox.addActionListener(actionListener);
+        dataBitsIntArrayCBox.addActionListener(actionListener);
+        stopBitsStringArrayCBox.addActionListener(actionListener);
+        parityStringArrayCBox.addActionListener(actionListener);
+        maskStringArrayCBox.addActionListener(actionListener);
+
+        // Получение панели содержимого
+        Container container = getContentPane();
+        // Размещение панелей
+        container.add(messageFlow, BorderLayout.SOUTH);
+        container.add(flow2, BorderLayout.WEST);
+        container.add(flow3, BorderLayout.EAST);
+
+    }
+
+    private class ActionWorker implements ActionListener {
+        @Override
+        public void actionPerformed(ActionEvent e) {
+            /**
+             * Настройка порта и подключение ************************************
+             */
+
+            // openPortButtonPressed
+            if (e.getActionCommand().equalsIgnoreCase("openPortButtonPressed")) {
+                portSay.setText("");
+                if (!portIsOpenedFlag) {
+                    messageText.setText("Oppening port");
+                    serialPort = new SerialPort(nameOfPortString);
+                    try {
+                        nameOfPortArea.setText(nameOfPortString);
+                        serialPort.openPort();
+                        portIsOpenedFlag = true;
+                        messageText.setText(nameOfPortString + " is open");
+
+                        // Port settings
+                        serialPort.setParams(baudRate, dataBits, stopBits, parity); // parity не изменяется из окна
+                        serialPort.setEventsMask(mask);
+
+                        serialPort.addEventListener(new PortListener());
+                    } catch (SerialPortException ex) {
+                        messageText.setText(ex.getMessage());
+                        portIsOpenedFlag = false;
+                    }
+                } else {
+                    messageText.setText("Port " + nameOfPortString + " is allready opened");
+                }
+            }
+            /**
+             * Применение настроек
+             * *****************************************************************
+             */
+
+            // applyButtonPressed
+            if (e.getActionCommand().equalsIgnoreCase("applyButtonPressed")) {
+                // Port name changing
+                String nameOfPortStringOld = "";
+                if (portIsOpenedFlag) {
+                    try {
+                        messageText.setText("Closing port");
+                        serialPort.purgePort(ABORT);
+                        serialPort.closePort();
+                        nameOfPortStringOld = nameOfPortString + " closed. ";
+                        portIsOpenedFlag = false;
+                    } catch (SerialPortException e1) {
+                        messageText.setText("Port already closed");
+                    }
+                }
+                nameOfPortString = nameOfPortArea.getText();
+                messageText.setText(nameOfPortStringOld + "Wating to open " + nameOfPortString);
+
+                // Baudrate changing
+                baudRate = (Integer) baudrateIntArrayCBox.getSelectedItem();
+                // dataBits changing
+                dataBits = (Integer) dataBitsIntArrayCBox.getSelectedItem();
+                // stopBits changing
+                switch ((String) stopBitsStringArrayCBox.getSelectedItem()) {
+                case "1":
+                    stopBits = 1;
+                    break;
+                case "1_5":
+                    stopBits = 3;
+                    break;
+                case "2":
+                    stopBits = 2;
+                    break;
+                default:
+                    stopBits = 1;
+                    break;
+                }
+                // mask changing
+                switch ((String) maskStringArrayCBox.getSelectedItem()) {
+                case "BREAK":
+                    mask = 64;
+                    break;
+                case "CTS":
+                    mask = 8;
+                    break;
+                case "DSR":
+                    mask = 16;
+                    break;
+                case "ERR":
+                    mask = 128;
+                    break;
+                case "RING":
+                    mask = 256;
+                    break;
+                case "RLSD":
+                    mask = 32;
+                    break;
+                case "RXCHAR":
+                    mask = 1;
+                    break;
+                case "RXFLAG":
+                    mask = 2;
+                    break;
+                case "TXEMPTY":
+                    mask = 4;
+                    break;
+                default:
+                    mask = 1;
+                    break;
+                }
+            }
+
+            /**
+             * Отправка в порт строки ************************************
+             */
+
+            // sendItButtonPressed
+            if (e.getActionCommand().equalsIgnoreCase("sendItButtonPressed") && portIsOpenedFlag) {
+                messageText.setText("Trying to send it");
+                try {
+                    serialPort.writeString(sendToPortArea.getText());
+                    messageText.setText("It was sent");
+                } catch (SerialPortException e1) {
+                    messageText.setText(e1.getMessage());
+                }
+            }
+            if (e.getActionCommand().equalsIgnoreCase("sendItButtonPressed") && !portIsOpenedFlag) {
+                messageText.setText("Please connect to port before");
+            }
+
+            /**
+             * Отправка в порт одного байта ************************************
+             */
+
+            // sendOneByteButtonPressed
+            if (e.getActionCommand().equalsIgnoreCase("sendOneByteButtonPressed") && portIsOpenedFlag) {
+                messageText.setText("Trying to send it");
+                Integer decimFromBool = MINIMAL_VOLUME_OF_BYTE; // диапазон от -128 до 127 или от 0 до 255
+                for (int i = 0; i < 8; i++) {
+                    decimFromBool = bitFlag[i] ? decimFromBool + (int) Math.pow(2, (7 - i)) : decimFromBool;
+                }
+                sendToPortArea.setText(Integer.toString(decimFromBool));
+                try {
+                    serialPort.writeByte(decimFromBool.byteValue());
+                    messageText.setText("Byte was sent");
+                } catch (SerialPortException e2) {
+                    messageText.setText(e2.getMessage());
+                }
+            }
+            if (e.getActionCommand().equalsIgnoreCase("sendOneByteButtonPressed") && !portIsOpenedFlag) {
+                messageText.setText("Please connect to port before");
+            }
+            // flags for byte sending
+            if (e.getActionCommand().equalsIgnoreCase("bit0")) {
+                bitFlag[0] = !bitFlag[0];
+            }
+            if (e.getActionCommand().equalsIgnoreCase("bit1")) {
+                bitFlag[1] = !bitFlag[1];
+            }
+            if (e.getActionCommand().equalsIgnoreCase("bit2")) {
+                bitFlag[2] = !bitFlag[2];
+            }
+            if (e.getActionCommand().equalsIgnoreCase("bit3")) {
+                bitFlag[3] = !bitFlag[3];
+            }
+            if (e.getActionCommand().equalsIgnoreCase("bit4")) {
+                bitFlag[4] = !bitFlag[4];
+            }
+            if (e.getActionCommand().equalsIgnoreCase("bit5")) {
+                bitFlag[5] = !bitFlag[5];
+            }
+            if (e.getActionCommand().equalsIgnoreCase("bit6")) {
+                bitFlag[6] = !bitFlag[6];
+            }
+            if (e.getActionCommand().equalsIgnoreCase("bit7")) {
+                bitFlag[7] = !bitFlag[7];
+            }
+        }
+    }
+
+    private static class PortListener implements SerialPortEventListener {
+        @Override
+        public void serialEvent(SerialPortEvent event) {
+            if (event.isRXCHAR() && event.getEventValue() > 0 && serialPort.isOpened()) {
+                /**
+                 * Если: 1. происходит событие установленной маски; 2. количество байтов в
+                 * буфере больше нуля; 3. порт открыт
+                 */
+                try {
+                    portSay.setText(serialPort.readString(event.getEventValue()));
+
+                } catch (SerialPortException ex) {
+                    messageText.setText(ex.getMessage());
+                }
+            } else {
+                if (event.isRXCHAR() && event.getEventValue() > 0) {
+                    messageText.setText("ERROR. Try to restart application");
+                }
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+        javax.swing.SwingUtilities.invokeLater(new Runnable() {
+            @Override
+            public void run() {
+//                JFrame.setDefaultLookAndFeelDecorated(true);
+                ComPortLogger06 frame = new ComPortLogger06();
+                frame.pack();
+//                frame.setLocationRelativeTo(null);
+                frame.setVisible(true);
+            }
+        });
+    }
+}
